@@ -155,20 +155,25 @@ def collect(podcasts, state, counts):
     counts["new episodes"] += len(new)
 
     started = time.monotonic()
-    for podcast, episode in sorted(new, key=lambda pe: pe[1]["published"]):
+    for number, (podcast, episode) in enumerate(sorted(new, key=lambda pe: pe[1]["published"]), 1):
+        progress = f"episode {number} of {len(new)}"
         if time.monotonic() - started > STOP_STARTING_AFTER_S:
             log(f"out of time, {podcast['name']} \"{episode['title']}\" waits for the next run")
             counts["episodes left for the next run"] += 1
             continue
         name = f"{episode['published']}-{slugify(episode['title'])}"
         transcript = f"transcripts/{podcast['id']}/{name}.txt"
-        log(f"{podcast['name']}: \"{episode['title']}\"")
+        log(f"{progress}: {podcast['name']}: \"{episode['title']}\"")
+        print(f"{progress}: getting the text")
+        episode_started = time.monotonic()
         try:
             text, source = episode_text(podcast, episode)
         except Exception as error:
             log(f"{podcast['name']} \"{episode['title']}\": no text: {error}")
+            print(f"{progress}: no text")
             counts["episodes without text"] += 1
             continue
+        print(f"{progress}: text ready after {(time.monotonic() - episode_started) / 60:.1f} min")
         counts["transcripts"] += 1
         header = (
             f"Podcast: {podcast['name']}\nEpisode: {episode['title']}\nPublished: {episode['published']}\n"
