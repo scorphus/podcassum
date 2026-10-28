@@ -1,5 +1,6 @@
 import argparse
 import functools
+import html
 import json
 import os
 import re
@@ -76,6 +77,7 @@ def parse_feed(xml):
                 "minutes": minutes(item.findtext("itunes:duration", namespaces=NS)),
                 "transcript_txt": transcripts.get("text/plain"),
                 "transcript_vtt": transcripts.get("text/vtt"),
+                "transcript_html": transcripts.get("text/html"),
             }
         )
     return episodes
@@ -105,6 +107,12 @@ def vtt_to_text(vtt):
     return " ".join(lines).replace(" \n", "\n").strip() + "\n"
 
 
+def html_to_text(page):
+    paragraphs = re.split(r"</p>|<br\s*/?>", page, flags=re.IGNORECASE)
+    lines = (" ".join(html.unescape(re.sub(r"<[^>]+>", " ", p)).split()) for p in paragraphs)
+    return "\n".join(line for line in lines if line) + "\n"
+
+
 @functools.cache
 def whisper():
     return WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8", cpu_threads=os.cpu_count())
@@ -123,6 +131,8 @@ def episode_text(podcast, episode):
         return fetch(episode["transcript_txt"]).decode(), "the podcast's own transcript"
     if episode["transcript_vtt"]:
         return vtt_to_text(fetch(episode["transcript_vtt"]).decode()), "the podcast's own transcript"
+    if episode["transcript_html"]:
+        return html_to_text(fetch(episode["transcript_html"]).decode()), "the podcast's own transcript"
     if podcast.get("vtt_from_link") and episode["link"]:
         try:
             return vtt_to_text(fetch(episode["link"] + ".vtt").decode()), "the podcast's own transcript"
