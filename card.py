@@ -7,7 +7,7 @@ THEMES = {
     "dark": {"bg1": "#1a1025", "bg2": "#2d1747", "fg": "#f3ecff", "dim": "#a99cc4", "track": "#3b2a55", "border": "#5b3d86"},
     "light": {"bg1": "#ffffff", "bg2": "#f1e8ff", "fg": "#24123d", "dim": "#6b5a87", "track": "#e4d8f7", "border": "#c9b3ee"},
 }
-PURPLES = ["#8A2BE2", "#A35BEB", "#B97CF0", "#6A1FB5"]
+PURPLES = ["#8A2BE2", "#A35BEB", "#B97CF0", "#6A1FB5", "#9D4EDD"]
 WEEKS = 12
 POSSUM = re.sub(r"</?svg[^>]*>", "", (Path(__file__).parent / "possum.svg").read_text()).strip()
 
@@ -40,21 +40,23 @@ def stats(podcasts, state, data, today):
 
 def svg(s, theme):
     t = THEMES[theme]
-    width, height = 560, 300
+    rows_end = 132 + 26 * len(s["categories"])
+    width, height = 560, rows_end + 64
     top = max((n for _, n in s["categories"]), default=0) or 1
     bars = []
-    for i, (name, n) in enumerate(s["categories"][:4]):
+    for i, (name, n) in enumerate(s["categories"]):
         y = 132 + i * 26
         w = 300 * n / top
         bars.append(
             f'<text x="28" y="{y + 11}" class="label">{name}</text>'
             f'<rect x="110" y="{y}" width="300" height="14" rx="7" fill="{t["track"]}"/>'
-            f'<rect x="110" y="{y}" width="{w:.1f}" height="14" rx="7" fill="{PURPLES[i]}" class="bar" style="animation-delay:{0.15 * i:.2f}s"/>'
+            f'<rect x="110" y="{y}" width="{w:.1f}" height="14" rx="7" fill="{PURPLES[i % len(PURPLES)]}" class="bar" style="animation-delay:{0.15 * i:.2f}s"/>'
             f'<text x="{110 + w + 8:.1f}" y="{y + 11}" class="count">{n}</text>'
         )
     peak = max(s["weeks"]) or 1
+    baseline = rows_end - 4
     weeks = "".join(
-        f'<rect x="{440 + i * 8}" y="{232 - 40 * n / peak:.1f}" width="5" height="{max(40 * n / peak, 1.5):.1f}" rx="1.5" fill="#8A2BE2" opacity="{1 if n else 0.35}"/>'
+        f'<rect x="{440 + i * 8}" y="{baseline - 40 * n / peak:.1f}" width="5" height="{max(40 * n / peak, 1.5):.1f}" rx="1.5" fill="#8A2BE2" opacity="{1 if n else 0.35}"/>'
         for i, n in enumerate(s["weeks"])
     )
     v = s["verdicts"]
@@ -83,7 +85,7 @@ def svg(s, theme):
 <text x="{text_x}" y="103" class="dim">{s['hours']:.1f} hours of audio you did not have to hear</text>
 {''.join(bars)}
 {weeks}
-<text x="440" y="250" class="dim">last {WEEKS} weeks</text>
+<text x="440" y="{rows_end + 14}" class="dim">last {WEEKS} weeks</text>
 <text x="28" y="{height - 22}" class="dim">listen <tspan class="count">{v['listen']}</tspan>  ·  skim <tspan class="count">{v['skim']}</tspan>  ·  skip <tspan class="count">{v['skip']}</tspan></text>
 </svg>
 """
