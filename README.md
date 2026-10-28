@@ -24,6 +24,7 @@ The podcast list, interests, transcripts and summaries live in a separate privat
   - `podcasts.toml`: one `[[podcast]]` table per podcast, with `id`, `name`, `category`, `feed`, and `vtt_from_link = true` when the transcript is at the episode's link plus `.vtt`
   - `interests.md`: what you care about, and how to give the verdict
   - `task-prompt.md`: the prompt for the Claude task
+  - `logs/`, written by the script: the workflow log of a public repository is public too, so it shows only counts and the details go here
 - A Claude Code scheduled task working in that repository, with `task-prompt.md` as its prompt and an API trigger.
 - Repository secrets: `CLAUDE_TASK_URL` and `CLAUDE_TASK_TOKEN` (the task's API trigger), and `DATA_DEPLOY_KEY` (an SSH deploy key with write access to the data repository).
 

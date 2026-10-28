@@ -4,13 +4,16 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 import tomllib
+import traceback
 import unicodedata
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
+from collections import Counter
 from datetime import date
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -23,6 +26,7 @@ ROOT = Path(__file__).parent
 # the private podcassum-data repo: podcasts.toml, episodes.json, transcripts/, summaries/
 DATA = Path(os.environ.get("PODCASSUM_DATA", ROOT / "data"))
 STATE = DATA / "episodes.json"
+LOG = DATA / "logs" / f"{date.today().isoformat()}.log"
 NS = {
     "podcast": "https://podcastindex.org/namespace/1.0",
     "itunes": "http://www.itunes.com/dtds/podcast-1.0.dtd",
@@ -127,34 +131,45 @@ def episode_text(podcast, episode):
     return transcribe(episode["mp3"]), f"Whisper speech-to-text ({WHISPER_MODEL} model); names and terms may be misheard"
 
 
-def collect(podcasts, state):
+def log(message):
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    with LOG.open("a") as f:
+        f.write(f"{time.strftime('%H:%M:%S')} {message}\n")
+
+
+def collect(podcasts, state, counts):
     new = []
     for podcast in podcasts:
         try:
             episodes = parse_feed(fetch(podcast["feed"]))
         except Exception as error:
-            print(f"::warning::{podcast['name']}: cannot read the feed: {error}")
+            log(f"{podcast['name']}: cannot read the feed: {error}")
+            counts["feeds that could not be read"] += 1
             continue
         known = state.get(podcast["id"])
         if known is None:
             state[podcast["id"]] = {e["guid"]: {"title": e["title"], "published": e["published"], "baseline": True} for e in episodes}
-            print(f"{podcast['name']}: first check, {len(episodes)} existing episodes marked as seen")
+            log(f"{podcast['name']}: first check, {len(episodes)} existing episodes marked as seen")
             continue
         new += [(podcast, e) for e in episodes if e["guid"] not in known]
+    counts["new episodes"] += len(new)
 
     started = time.monotonic()
     for podcast, episode in sorted(new, key=lambda pe: pe[1]["published"]):
         if time.monotonic() - started > STOP_STARTING_AFTER_S:
-            print(f"::warning::out of time, {podcast['name']} \"{episode['title']}\" waits for the next run")
+            log(f"out of time, {podcast['name']} \"{episode['title']}\" waits for the next run")
+            counts["episodes left for the next run"] += 1
             continue
         name = f"{episode['published']}-{slugify(episode['title'])}"
         transcript = f"transcripts/{podcast['id']}/{name}.txt"
-        print(f"{podcast['name']}: \"{episode['title']}\"")
+        log(f"{podcast['name']}: \"{episode['title']}\"")
         try:
             text, source = episode_text(podcast, episode)
         except Exception as error:
-            print(f"::warning::{podcast['name']} \"{episode['title']}\": no text: {error}")
+            log(f"{podcast['name']} \"{episode['title']}\": no text: {error}")
+            counts["episodes without text"] += 1
             continue
+        counts["transcripts"] += 1
         header = (
             f"Podcast: {podcast['name']}\nEpisode: {episode['title']}\nPublished: {episode['published']}\n"
             f"Link: {episode['link']}\nLength: {episode['minutes']} min\nText from: {source}\n\n"
@@ -171,8 +186,8 @@ def collect(podcasts, state):
         }
 
 
-def fire(state):
-    for podcast_id, episodes in state.items():
+def fire(state, counts):
+    for episodes in state.values():
         for episode in episodes.values():
             if "transcript" not in episode or episode["session"]:
                 continue
@@ -192,9 +207,12 @@ def fire(state):
                 with urllib.request.urlopen(request, timeout=60) as response:
                     episode["session"] = json.load(response)["claude_code_session_url"]
                 episode["delivered"] = date.today().isoformat()
-                print(f"{episode['title']}: {episode['session']}")
-            except urllib.error.HTTPError as error:
-                print(f"::warning::{episode['title']}: Claude task not started, retrying next run: {error} {error.read().decode()[:300]}")
+                log(f"{episode['title']}: {episode['session']}")
+                counts["Claude runs started"] += 1
+            except Exception as error:
+                body = error.read().decode()[:300] if isinstance(error, urllib.error.HTTPError) else ""
+                log(f"{episode['title']}: Claude task not started, retrying next run: {error} {body}")
+                counts["Claude runs that failed to start"] += 1
 
 
 def save(state):
@@ -206,13 +224,43 @@ def bump_card_version():
     readme.write_text(re.sub(r"\?v=(\d+)", lambda m: f"?v={int(m.group(1)) + 1}", readme.read_text()))
 
 
+def git(repo, *args):
+    # git output names transcript files, so it goes to the private log, never to the public one
+    result = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True)
+    if result.returncode:
+        log(f"git {' '.join(args)} failed in {repo.name}:\n{result.stdout}{result.stderr}")
+        raise RuntimeError("git failed")
+    return result
+
+
 def push(repo, paths, message):
-    subprocess.run(["git", "add", *paths], cwd=repo, check=True)
+    git(repo, "add", *paths)
     if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo).returncode == 0:
         return
-    subprocess.run(["git", "commit", "-q", "-m", message], cwd=repo, check=True)
-    subprocess.run(["git", "pull", "-q", "--rebase"], cwd=repo, check=True)
-    subprocess.run(["git", "push", "-q"], cwd=repo, check=True)
+    git(repo, "commit", "-q", "-m", message)
+    git(repo, "pull", "-q", "--rebase")
+    git(repo, "push", "-q")
+
+
+def run(args, counts):
+    log("run started")
+    podcasts = tomllib.loads((DATA / "podcasts.toml").read_text())["podcast"]
+    state = json.loads(STATE.read_text()) if STATE.exists() else {}
+
+    collect(podcasts, state, counts)
+    save(state)
+    if not args.no_git:
+        push(DATA, ["episodes.json", "transcripts", "logs"], "add new episode transcripts")
+    if not args.no_fire:
+        fire(state, counts)
+        save(state)
+        if not args.no_git:
+            push(DATA, ["episodes.json", "logs"], "record started Claude runs")
+
+    if card.write(podcasts, state, DATA, ROOT, date.today()):
+        bump_card_version()
+    if not args.no_git:
+        push(ROOT, ["card-dark.svg", "card-light.svg", "README.md"], "update the stats card")
 
 
 def main():
@@ -221,23 +269,25 @@ def main():
     parser.add_argument("--no-fire", action="store_true", help="do not start Claude runs")
     args = parser.parse_args()
 
-    podcasts = tomllib.loads((DATA / "podcasts.toml").read_text())["podcast"]
-    state = json.loads(STATE.read_text()) if STATE.exists() else {}
-
-    collect(podcasts, state)
-    save(state)
-    if not args.no_git:
-        push(DATA, ["episodes.json", "transcripts"], "add new episode transcripts")
-    if not args.no_fire:
-        fire(state)
-        save(state)
+    # this repository is public, and so are its workflow logs: print only counts, everything else goes to LOG
+    counts = Counter()
+    try:
+        run(args, counts)
+    except Exception:
+        log(traceback.format_exc())
+        print("::error::the run failed; the details are in the private log")
         if not args.no_git:
-            push(DATA, ["episodes.json"], "record started Claude runs")
-
-    if card.write(podcasts, state, DATA, ROOT, date.today()):
-        bump_card_version()
-    if not args.no_git:
-        push(ROOT, ["card-dark.svg", "card-light.svg", "README.md"], "update the stats card")
+            try:
+                push(DATA, ["logs"], "add the log of a failed run")
+            except Exception:
+                pass
+        sys.exit(1)
+    finally:
+        for what in ("new episodes", "transcripts", "Claude runs started"):
+            print(f"{what}: {counts[what]}")
+        for what in ("feeds that could not be read", "episodes without text", "episodes left for the next run", "Claude runs that failed to start"):
+            if counts[what]:
+                print(f"::warning::{what}: {counts[what]}")
 
 
 if __name__ == "__main__":
