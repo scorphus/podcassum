@@ -172,7 +172,7 @@ def save_requests(requests):
     REQUESTS.write_text("\n".join(lines) + "\n")
 
 
-def collect(podcasts, state, requests, counts):
+def collect(podcasts, state, requests, counts, text_ready):
     new, feeds = [], {}
     for podcast in podcasts:
         try:
@@ -246,6 +246,7 @@ def collect(podcasts, state, requests, counts):
             "header": header.strip(),
             "session": None,
         }
+        text_ready()
 
     return pending + [r for r, p, e in requested if "transcript" not in state[p["id"]][e["guid"]]]
 
@@ -277,6 +278,16 @@ def fire(state, counts):
                 body = error.read().decode()[:300] if isinstance(error, urllib.error.HTTPError) else ""
                 log(f"{episode['title']}: Claude task not started, retrying next run: {error} {body}")
                 counts["Claude runs that failed to start"] += 1
+
+
+def deliver(args, state, counts):
+    # Claude reads the transcript from the data repository, so it has to be pushed before the run starts
+    save(state)
+    if not args.no_git:
+        push(DATA, ["episodes.json", "transcripts", "logs"], "add an episode transcript")
+    if not args.no_fire:
+        fire(state, counts)
+        save(state)
 
 
 def save(state):
@@ -330,18 +341,13 @@ def run(args, counts):
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
 
     requests = load_requests()
-    remaining = collect(podcasts, state, requests, counts)
-    save(state)
+    remaining = collect(podcasts, state, requests, counts, lambda: deliver(args, state, counts))
     if remaining != requests:
         save_requests(remaining)
-    if not args.no_git:
-        push(DATA, ["episodes.json", "transcripts", "logs", *(["requests.toml"] if REQUESTS.exists() else [])], "add new episode transcripts")
-    if not args.no_fire:
-        fire(state, counts)
-        save(state)
+    deliver(args, state, counts)
     write_index(podcasts, state)
     if not args.no_git:
-        push(DATA, ["episodes.json", "logs", "README.md"], "record started Claude runs and update the index")
+        push(DATA, ["episodes.json", "logs", "README.md", *(["requests.toml"] if REQUESTS.exists() else [])], "record started Claude runs and update the index")
 
     if card.write(podcasts, state, DATA, ROOT, date.today()):
         bump_card_version()
