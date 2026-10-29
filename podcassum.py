@@ -234,6 +234,24 @@ def save(state):
     STATE.write_text(json.dumps(state, indent=1, ensure_ascii=False) + "\n")
 
 
+def write_index(podcasts, state):
+    names = {p["id"]: p["name"] for p in podcasts}
+    rows = []
+    for podcast_id, episodes in state.items():
+        for episode in episodes.values():
+            if not episode.get("session"):
+                continue
+            summary = DATA / episode["summary"]
+            match = re.search(r"Verdict: (listen|skim|skip)", summary.read_text()) if summary.exists() else None
+            verdict = f"**{match.group(1)}**" if match else "being written"
+            title = episode["title"].replace("|", "·")
+            link = f"[{title}]({episode['summary']})" if summary.exists() else title
+            rows.append((episode["delivered"], episode["published"], f"| {episode['delivered']} | {names.get(podcast_id, podcast_id)} | {link} | {verdict} | [open]({episode['session']}) |"))
+    rows.sort(reverse=True)
+    lines = ["# Podcassum", "", "| Delivered | Podcast | Episode | Verdict | Claude |", "|---|---|---|---|---|", *(row for *_, row in rows)]
+    (DATA / "README.md").write_text("\n".join(lines) + "\n")
+
+
 def bump_card_version():
     readme = ROOT / "README.md"
     readme.write_text(re.sub(r"\?v=(\d+)", lambda m: f"?v={int(m.group(1)) + 1}", readme.read_text()))
@@ -269,8 +287,9 @@ def run(args, counts):
     if not args.no_fire:
         fire(state, counts)
         save(state)
-        if not args.no_git:
-            push(DATA, ["episodes.json", "logs"], "record started Claude runs")
+    write_index(podcasts, state)
+    if not args.no_git:
+        push(DATA, ["episodes.json", "logs", "README.md"], "record started Claude runs and update the index")
 
     if card.write(podcasts, state, DATA, ROOT, date.today()):
         bump_card_version()
