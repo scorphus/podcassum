@@ -28,6 +28,14 @@ ROOT = Path(__file__).parent
 DATA = Path(os.environ.get("PODCASSUM_DATA", ROOT / "data"))
 STATE = DATA / "episodes.json"
 LOG = DATA / "logs" / f"{date.today().isoformat()}.log"
+REQUESTS = DATA / "requests.toml"
+REQUESTS_HELP = """\
+# Episodes to summarise on request. The watcher handles each one on its next run and removes it here.
+# Changing this file on main starts the watcher (.github/workflows/requests.yml).
+#
+# [[request]]
+# podcast = "talkpython"   # the podcast's id in podcasts.toml
+# episode = "552"          # the episode's number, or words that all appear in its title"""
 NS = {
     "podcast": "https://podcastindex.org/namespace/1.0",
     "itunes": "http://www.itunes.com/dtds/podcast-1.0.dtd",
@@ -147,8 +155,25 @@ def log(message):
         f.write(f"{time.strftime('%H:%M:%S')} {message}\n")
 
 
-def collect(podcasts, state, counts):
-    new = []
+def matches(episode, wanted):
+    if wanted.isdigit():
+        return re.search(rf"(?<!\d){wanted}(?!\d)", episode["title"]) is not None
+    return all(word in episode["title"].lower() for word in wanted.lower().split())
+
+
+def load_requests():
+    return tomllib.loads(REQUESTS.read_text()).get("request", []) if REQUESTS.exists() else []
+
+
+def save_requests(requests):
+    lines = [REQUESTS_HELP]
+    for request in requests:
+        lines += ["", "[[request]]", f'podcast = "{request["podcast"]}"', f'episode = "{request["episode"]}"']
+    REQUESTS.write_text("\n".join(lines) + "\n")
+
+
+def collect(podcasts, state, requests, counts):
+    new, feeds = [], {}
     for podcast in podcasts:
         try:
             episodes = parse_feed(fetch(podcast["feed"]))
@@ -156,6 +181,7 @@ def collect(podcasts, state, counts):
             log(f"{podcast['name']}: cannot read the feed: {error}")
             counts["feeds that could not be read"] += 1
             continue
+        feeds[podcast["id"]] = episodes
         known = state.get(podcast["id"])
         if known is None:
             state[podcast["id"]] = {e["guid"]: {"title": e["title"], "published": e["published"], "baseline": True} for e in episodes}
@@ -163,6 +189,27 @@ def collect(podcasts, state, counts):
             continue
         new += [(podcast, e) for e in episodes if e["guid"] not in known]
     counts["new episodes"] += len(new)
+
+    by_id = {p["id"]: p for p in podcasts}
+    pending, requested = [], []
+    for request in requests:
+        if request["podcast"] in by_id and request["podcast"] not in feeds:
+            pending.append(request)
+            continue
+        found = [e for e in feeds.get(request["podcast"], []) if matches(e, str(request["episode"]))]
+        if not found:
+            log(f"request {request['podcast']} {request['episode']!r}: no such podcast or episode, dropped")
+            counts["requests not found"] += 1
+            continue
+        podcast, episode = by_id[request["podcast"]], found[0]
+        if "transcript" in state[podcast["id"]].get(episode["guid"], {}):
+            log(f"request {request['podcast']} {request['episode']!r}: \"{episode['title']}\" is already summarised, dropped")
+            continue
+        log(f"request {request['podcast']} {request['episode']!r}: \"{episode['title']}\"")
+        requested.append((request, podcast, episode))
+        if all(e["guid"] != episode["guid"] for _, e in new):
+            new.append((podcast, episode))
+            counts["requested episodes"] += 1
 
     started = time.monotonic()
     for number, (podcast, episode) in enumerate(sorted(new, key=lambda pe: pe[1]["published"]), 1):
@@ -199,6 +246,8 @@ def collect(podcasts, state, counts):
             "header": header.strip(),
             "session": None,
         }
+
+    return pending + [r for r, p, e in requested if "transcript" not in state[p["id"]][e["guid"]]]
 
 
 def fire(state, counts):
@@ -280,10 +329,13 @@ def run(args, counts):
     podcasts = tomllib.loads((DATA / "podcasts.toml").read_text())["podcast"]
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
 
-    collect(podcasts, state, counts)
+    requests = load_requests()
+    remaining = collect(podcasts, state, requests, counts)
     save(state)
+    if remaining != requests:
+        save_requests(remaining)
     if not args.no_git:
-        push(DATA, ["episodes.json", "transcripts", "logs"], "add new episode transcripts")
+        push(DATA, ["episodes.json", "transcripts", "logs", *(["requests.toml"] if REQUESTS.exists() else [])], "add new episode transcripts")
     if not args.no_fire:
         fire(state, counts)
         save(state)
@@ -317,9 +369,9 @@ def main():
                 pass
         sys.exit(1)
     finally:
-        for what in ("new episodes", "transcripts", "Claude runs started"):
+        for what in ("new episodes", "requested episodes", "transcripts", "Claude runs started"):
             print(f"{what}: {counts[what]}")
-        for what in ("feeds that could not be read", "episodes without text", "episodes left for the next run", "Claude runs that failed to start"):
+        for what in ("feeds that could not be read", "requests not found", "episodes without text", "episodes left for the next run", "Claude runs that failed to start"):
             if counts[what]:
                 print(f"::warning::{what}: {counts[what]}")
 

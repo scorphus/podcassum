@@ -24,6 +24,7 @@ The podcast list, interests, transcripts and summaries live in a separate privat
   - `podcasts.toml`: one `[[podcast]]` table per podcast, with `id`, `name`, `category`, `feed`, and `vtt_from_link = true` when the transcript is at the episode's link plus `.vtt`
   - `interests.md`: what you care about, and how to give the verdict
   - `task-prompt.md`: the prompt for the Claude task
+  - `requests.toml` (optional): episodes to summarise on request, by podcast id and episode number or title words. The watcher handles them on its next run and removes them. In the data repository, a workflow on changes to this file can start the watcher right away with `gh workflow run`, using a token allowed only to run this repository's workflows
   - `README.md`, written by the script: an index of every summarised episode with its verdict and links to the summary and the Claude session
   - `logs/`, written by the script: the workflow log of a public repository is public too, so it shows only counts and the details go here
 - A Claude Code scheduled task working in that repository, with `task-prompt.md` as its prompt and an API trigger.
