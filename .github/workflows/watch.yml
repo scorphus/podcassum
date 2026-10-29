@@ -1,8 +1,12 @@
 name: watch podcasts
 
 on:
+  # GitHub sometimes drops scheduled runs; a run that finds nothing new takes a minute
   schedule:
-    - cron: "7 6 * * *"
+    - cron: "37 23 * * *"
+    - cron: "37 1 * * *"
+    - cron: "37 3 * * *"
+    - cron: "37 5 * * *"
   workflow_dispatch:
 
 concurrency: watch
