@@ -331,7 +331,8 @@ def push(repo, paths, message):
     if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo).returncode == 0:
         return
     git(repo, "commit", "-q", "-m", message)
-    git(repo, "pull", "-q", "--rebase")
+    # files outside `paths` (e.g. requests.toml) may be modified but unstaged, which plain `pull --rebase` refuses
+    git(repo, "pull", "-q", "--rebase", "--autostash")
     git(repo, "push", "-q")
 
 
