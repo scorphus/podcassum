@@ -284,7 +284,7 @@ def deliver(args, state, counts):
     # Claude reads the transcript from the data repository, so it has to be pushed before the run starts
     save(state)
     if not args.no_git:
-        push(DATA, ["episodes.json", "transcripts", "logs"], "add an episode transcript")
+        push(DATA, ["episodes.json", "transcripts", "logs", *(["requests.toml"] if REQUESTS.exists() else [])], "add an episode transcript")
     if not args.no_fire:
         fire(state, counts)
         save(state)
@@ -331,7 +331,7 @@ def push(repo, paths, message):
     if subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=repo).returncode == 0:
         return
     git(repo, "commit", "-q", "-m", message)
-    git(repo, "pull", "-q", "--rebase")
+    git(repo, "pull", "-q", "--rebase", "--autostash")
     git(repo, "push", "-q")
 
 
