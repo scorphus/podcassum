@@ -204,6 +204,7 @@ def collect(podcasts, state, requests, counts, text_ready):
         podcast, episode = by_id[request["podcast"]], found[0]
         if "transcript" in state[podcast["id"]].get(episode["guid"], {}):
             log(f"request {request['podcast']} {request['episode']!r}: \"{episode['title']}\" is already summarised, dropped")
+            counts["requests already summarised"] += 1
             continue
         log(f"request {request['podcast']} {request['episode']!r}: \"{episode['title']}\"")
         requested.append((request, podcast, episode))
@@ -377,7 +378,7 @@ def main():
     finally:
         for what in ("new episodes", "requested episodes", "transcripts", "Claude runs started"):
             print(f"{what}: {counts[what]}")
-        for what in ("feeds that could not be read", "requests not found", "episodes without text", "episodes left for the next run", "Claude runs that failed to start"):
+        for what in ("feeds that could not be read", "requests not found", "requests already summarised", "episodes without text", "episodes left for the next run", "Claude runs that failed to start"):
             if counts[what]:
                 print(f"::warning::{what}: {counts[what]}")
 
