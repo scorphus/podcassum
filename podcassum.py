@@ -31,7 +31,6 @@ LOG = DATA / "logs" / f"{date.today().isoformat()}.log"
 REQUESTS = DATA / "requests.toml"
 REQUESTS_HELP = """\
 # Episodes to summarise on request. The watcher handles each one on its next run and removes it here.
-# Changing this file on main starts the watcher (.github/workflows/requests.yml).
 #
 # [[request]]
 # podcast = "talkpython"   # the podcast's id in podcasts.toml
