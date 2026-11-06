@@ -1,6 +1,6 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="card-dark.svg?v=22">
-  <img src="card-light.svg?v=22" width="100%" alt="Podcassum stats: episodes summarised per category">
+  <source media="(prefers-color-scheme: dark)" srcset="card-dark.svg?v=23">
+  <img src="card-light.svg?v=23" width="100%" alt="Podcassum stats: episodes summarised per category">
 </picture>
 
 # Podcassum
