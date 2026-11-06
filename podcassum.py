@@ -357,8 +357,12 @@ def run(args, counts):
 
     requests = load_requests()
     remaining = collect(podcasts, state, requests, counts, lambda: deliver(args, state, counts))
-    if remaining != requests:
-        save_requests(remaining)
+    handled = [r for r in requests if r not in remaining]
+    if handled:
+        # requests pushed while this run was going must be kept
+        if not args.no_git:
+            git(DATA, "pull", "-q", "--rebase", "--autostash")
+        save_requests([r for r in load_requests() if r not in handled])
     deliver(args, state, counts)
     write_index(podcasts, state)
     if not args.no_git:
