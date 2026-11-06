@@ -336,8 +336,22 @@ def push(repo, paths, message):
     git(repo, "push", "-q")
 
 
+def delete_merged_branches():
+    # sessions push their summary to main, so deleting the branch of one still running loses nothing
+    git(DATA, "fetch", "-q", "origin", "+refs/heads/claude/*:refs/remotes/origin/claude/*")
+    merged = git(DATA, "branch", "-r", "--merged", "HEAD", "--format=%(refname:lstrip=3)", "--list", "origin/claude/*").stdout.split()
+    if merged:
+        try:
+            git(DATA, "push", "-q", "origin", "--delete", *merged)
+            log(f"deleted {len(merged)} claude/ branches already in main")
+        except RuntimeError:
+            pass
+
+
 def run(args, counts):
     log("run started")
+    if not args.no_git:
+        delete_merged_branches()
     podcasts = tomllib.loads((DATA / "podcasts.toml").read_text())["podcast"]
     state = json.loads(STATE.read_text()) if STATE.exists() else {}
 

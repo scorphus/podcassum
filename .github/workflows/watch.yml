@@ -25,6 +25,7 @@ jobs:
           repository: scorphus/podcassum-data
           ssh-key: ${{ secrets.DATA_DEPLOY_KEY }}
           path: data
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
       - uses: actions/cache@v4
         with:
