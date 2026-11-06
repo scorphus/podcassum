@@ -135,10 +135,10 @@ def transcribe(mp3_url):
 
 
 def episode_text(podcast, episode):
-    if episode["transcript_txt"]:
-        return fetch(episode["transcript_txt"]).decode(), "the podcast's own transcript"
     if episode["transcript_vtt"]:
         return vtt_to_text(fetch(episode["transcript_vtt"]).decode()), "the podcast's own transcript"
+    if episode["transcript_txt"]:
+        return fetch(episode["transcript_txt"]).decode(), "the podcast's own transcript"
     if episode["transcript_html"]:
         return html_to_text(fetch(episode["transcript_html"]).decode()), "the podcast's own transcript"
     if podcast.get("vtt_from_link") and episode["link"]:
